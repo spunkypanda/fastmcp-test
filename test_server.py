@@ -204,6 +204,34 @@ def test_generate_report_handles_decline():
     _run_async(run())
 
 
+def test_process_customers_reports_progress():
+    async def run():
+        events: list[tuple[float, float | None, str | None]] = []
+
+        async def progress_cb(progress, total, message):
+            events.append((progress, total, message))
+
+        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.call_tool(
+                    "process_customers",
+                    {"count": 3},
+                    progress_callback=progress_cb,
+                    meta={"progressToken": "token-1"},
+                )
+                assert result.isError is False
+                assert events == [
+                    (1, 3, "Processing customer 1 of 3"),
+                    (2, 3, "Processing customer 2 of 3"),
+                    (3, 3, "Processing customer 3 of 3"),
+                ]
+
+    _run_async(run())
+
+
 def test_resources_list_and_read():
     async def run():
         params = StdioServerParameters(

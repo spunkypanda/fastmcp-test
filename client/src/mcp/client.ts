@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import {
   ElicitRequestSchema,
   type CallToolResult,
+  type Progress,
   type ReadResourceResult,
   type Resource,
   type Tool,
@@ -84,9 +85,18 @@ export async function listTools(): Promise<Tool[]> {
 export async function callTool(
   name: string,
   args: Record<string, unknown>,
+  onProgress?: (progress: Progress) => void,
 ): Promise<CallToolResult> {
   const c = await connectMCP();
-  return c.callTool({ name, arguments: args }) as Promise<CallToolResult>;
+  // Passing onprogress opts the SDK into progress notifications: it attaches
+  // a progressToken and dispatches notifications/progress to the callback.
+  return c.callTool(
+    { name, arguments: args },
+    undefined,
+    onProgress
+      ? { onprogress: onProgress, resetTimeoutOnProgress: true }
+      : undefined,
+  ) as Promise<CallToolResult>;
 }
 
 export async function listResources(): Promise<Resource[]> {

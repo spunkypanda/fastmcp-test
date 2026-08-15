@@ -8,6 +8,7 @@ Endpoints:
     POST /mcp    ->  Streamable HTTP MCP endpoint (bearer-token protected)
 """
 
+import asyncio
 import csv
 import os
 from datetime import datetime, timezone
@@ -189,6 +190,22 @@ def _build_customers_csv(count: int) -> str:
     writer.writeheader()
     writer.writerows(_build_customers(count))
     return buffer.getvalue()
+
+
+@mcp.tool(auth=require_scopes("admin"))
+async def process_customers(
+    ctx: Context,
+    count: Annotated[int, Field(ge=1, le=100)] = 10,
+) -> dict[str, Any]:
+    """Simulate processing `count` customer records, reporting progress (admin only).
+
+    Sends notifications/progress updates while it runs; clients that pass a
+    progressToken (e.g. via onprogress) see a live progress bar.
+    """
+    for i in range(1, count + 1):
+        await asyncio.sleep(0.15)
+        await ctx.report_progress(i, count, f"Processing customer {i} of {count}")
+    return {"status": "ok", "processed": count}
 
 
 @mcp.tool(auth=require_scopes("admin"))

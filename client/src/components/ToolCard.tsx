@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Progress as McpProgress, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   Box,
   Button,
@@ -10,6 +10,7 @@ import {
   Heading,
   Input,
   NativeSelect,
+  Progress,
   Stack,
   Text,
 } from "@chakra-ui/react";
@@ -72,6 +73,7 @@ type FormValues = Record<string, string | number | boolean>;
 
 export function ToolCard({ tool }: { tool: Tool }) {
   const mutation = useMcpCall(tool.name);
+  const [progress, setProgress] = useState<McpProgress | null>(null);
   const properties = (tool.inputSchema?.properties ?? {}) as Record<
     string,
     PropSchema
@@ -112,8 +114,16 @@ export function ToolCard({ tool }: { tool: Tool }) {
         args[key] = value;
       }
     }
-    mutation.mutate(args);
+    setProgress(null);
+    mutation.mutate(
+      { args, onProgress: setProgress },
+      { onSettled: () => setProgress(null) },
+    );
   };
+
+  const percent = progress?.total
+    ? Math.min(100, Math.max(0, (progress.progress / progress.total) * 100))
+    : 0;
 
   return (
     <Card.Root>
@@ -180,6 +190,24 @@ export function ToolCard({ tool }: { tool: Tool }) {
               </Field.Root>
             );
           })}
+
+          {progress && (
+            <Box>
+              <HStack justify="space-between" fontSize="xs" color="fg.muted">
+                <Text>{progress.message ?? "Working…"}</Text>
+                <Text>
+                  {progress.total != null
+                    ? `${progress.progress}/${progress.total}`
+                    : String(progress.progress)}
+                </Text>
+              </HStack>
+              <Progress.Root value={percent} size="sm" mt={1}>
+                <Progress.Track>
+                  <Progress.Range />
+                </Progress.Track>
+              </Progress.Root>
+            </Box>
+          )}
 
           <HStack gap="3" alignItems="flex-start">
             <Button colorPalette="blue" onClick={submit} loading={mutation.isPending}>

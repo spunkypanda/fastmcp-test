@@ -3,8 +3,9 @@
 A minimal MCP (Model Context Protocol) app:
 
 - **Server** — Python, built with [FastMCP](https://github.com/PrefectHQ/fastmcp), served over
-  Streamable HTTP with bearer-token auth. Two public tools (`add`, `reverse_string`) and five
-  admin-only tools (`get_time`, `secret_message`, `get_customers`, `chart_image`, `generate_report`).
+  Streamable HTTP with bearer-token auth. Two public tools (`add`, `reverse_string`) and six
+  admin-only tools (`get_time`, `secret_message`, `get_customers`, `chart_image`, `generate_report`,
+  `process_customers`).
   `generate_report` uses **user elicitation** (`ctx.elicit`) — it pauses until the human picks a
   report format, then resumes. Only the **CSV** option actually generates a report (real customer
   data as `text/csv`); pdf/png return a "not implemented" notice.
@@ -36,7 +37,7 @@ sequenceDiagram
 
     C->>S: POST /mcp - tools/list (same session)
     S->>S: AuthMiddleware filters tools by token scopes
-    S-->>C: visible tools + inputSchemas (admin: 7, alice: 2)
+    S-->>C: visible tools + inputSchemas (admin: 8, alice: 2)
     C-->>U: Renders tool list (TanStack Query, 30s cache)
 
     U->>C: Fill form, click Call tool
@@ -60,7 +61,7 @@ Demo users (from `MCP_USERS`):
 
 | User  | Password | Scopes | Sees                              |
 |-------|----------|--------|-----------------------------------|
-| admin | secret   | admin  | all 7 tools                       |
+| admin | secret   | admin  | all 8 tools                       |
 | alice | wonder   | user   | public tools only                 |
 
 ## Run it
@@ -148,8 +149,10 @@ curl -N localhost:8000/mcp
 ```
 main.py              FastMCP server: tools + Streamable HTTP app
                      (add, reverse_string public; get_time, secret_message,
-                     get_customers, chart_image, generate_report admin-only;
-                     generate_report demonstrates ctx.elicit user elicitation)
+                     get_customers, chart_image, generate_report,
+                     process_customers admin-only; generate_report uses
+                     ctx.elicit user elicitation, process_customers uses
+                     ctx.report_progress notifications)
                      resources: customers://latest (JSON), report://revenue-chart
                      (PNG blob), customers://{id} template — all admin-only
 auth.py              SimpleTokenVerifier, POST /login, JWT mint/verify

@@ -50,6 +50,14 @@ vi.mock("./mcp/client", () => ({
         properties: { count: { type: "number", default: 10 } },
       },
     },
+    {
+      name: "process_customers",
+      description: "Simulate processing customer records with progress (admin only).",
+      inputSchema: {
+        type: "object",
+        properties: { count: { type: "number", default: 10 } },
+      },
+    },
   ]),
   callTool: vi.fn(),
   connectMCP: vi.fn(),
@@ -292,9 +300,11 @@ describe("get_customers result table", () => {
     expect(
       screen.getByRole("columnheader", { name: /email/i }),
     ).toBeInTheDocument();
-    expect(mcpClient.callTool).toHaveBeenCalledWith("get_customers", {
-      count: 10,
-    });
+    expect(mcpClient.callTool).toHaveBeenCalledWith(
+      "get_customers",
+      { count: 10 },
+      expect.any(Function),
+    );
   });
 });
 
@@ -662,6 +672,71 @@ describe("csv report rendering", () => {
       // Raw CSV text — not JSON-escaped (no \n in the output).
       expect(screen.getByText(/1,Allison Hill/)).toBeInTheDocument();
       expect(screen.queryByText(/\\n/)).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe("progress reporting", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(mcpClient.callTool).mockReset();
+  });
+
+  it("shows a progress bar while the tool is running", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+
+    let resolveCall!: (result: CallToolResult) => void;
+    vi.mocked(mcpClient.callTool).mockImplementation(
+      async (_name, _args, onProgress) => {
+        onProgress?.({
+          progress: 5,
+          total: 10,
+          message: "Processing customer 5 of 10",
+        });
+        return new Promise<CallToolResult>((resolve) => {
+          resolveCall = resolve;
+        });
+      },
+    );
+
+    renderApp();
+    await userEvent.type(screen.getByPlaceholderText("admin"), "admin");
+    await userEvent.type(screen.getByPlaceholderText("••••••"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/signed in as/i)).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("process_customers"));
+    await userEvent.click(
+      screen.getByRole("button", { name: /call process_customers/i }),
+    );
+
+    // While the call is in flight, the progress bar shows the last update.
+    await waitFor(() => {
+      expect(screen.getByText("5/10")).toBeInTheDocument();
+      expect(
+        screen.getByText("Processing customer 5 of 10"),
+      ).toBeInTheDocument();
+    });
+
+    // The onprogress callback is passed through to the transport.
+    expect(mcpClient.callTool).toHaveBeenCalledWith(
+      "process_customers",
+      { count: 10 },
+      expect.any(Function),
+    );
+    resolveCall({
+      content: [{ type: "text", text: "{\"status\":\"ok\"}" }],
+      structuredContent: { status: "ok" },
+      isError: false,
+    } as CallToolResult);
+    await waitFor(() => {
+      expect(screen.getByText(/"status": "ok"/)).toBeInTheDocument();
     });
   });
 });
