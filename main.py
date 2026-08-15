@@ -8,14 +8,16 @@ Endpoints:
     POST /mcp    ->  Streamable HTTP MCP endpoint (bearer-token protected)
 """
 
+import csv
 import os
 from datetime import datetime, timezone
-from io import BytesIO
+from io import BytesIO, StringIO
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import mcp.types as mcp_types
 from faker import Faker
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.resources.template import ResourceTemplate
 from fastmcp.server.auth import require_scopes
 from fastmcp.server.http import create_streamable_http_app
@@ -136,6 +138,57 @@ mcp.add_template(
         auth=require_scopes("admin"),
     )
 )
+
+
+@mcp.tool(auth=require_scopes("admin"))
+async def generate_report(
+    ctx: Context, count: Annotated[int, Field(ge=1, le=100)] = 10
+):
+    """Ask which report format to generate (admin only).
+
+    Demonstrates user elicitation: the call pauses until the human picks
+    an option (or declines/cancels), then resumes with their answer.
+    Only CSV reports are actually generated; pdf/png return a notice.
+    """
+    answer = await ctx.elicit(
+        "Choose a report format:",
+        {
+            "pdf": {"title": "PDF report", "description": "Portable Document Format"},
+            "csv": {"title": "CSV export", "description": "Comma-separated values"},
+            "png": {"title": "Revenue chart", "description": "PNG image"},
+        },
+    )
+    if answer.action != "accept":
+        return f"Report generation cancelled ({answer.action})."
+    if answer.data != "csv":
+        return (
+            f"Only CSV reports are implemented; "
+            f"'{answer.data}' is not supported yet."
+        )
+    return mcp_types.TextContent(
+        type="text", text=_build_customers_csv(count), mimeType="text/csv"
+    )
+
+
+CUSTOMER_FIELDS = [
+    "id",
+    "name",
+    "email",
+    "phone",
+    "company",
+    "city",
+    "country",
+    "created_at",
+]
+
+
+def _build_customers_csv(count: int) -> str:
+    """Serialize `count` sample customers as CSV text."""
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CUSTOMER_FIELDS)
+    writer.writeheader()
+    writer.writerows(_build_customers(count))
+    return buffer.getvalue()
 
 
 @mcp.tool(auth=require_scopes("admin"))

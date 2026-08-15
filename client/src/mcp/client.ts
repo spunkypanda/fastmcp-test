@@ -1,12 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type {
-  CallToolResult,
-  ReadResourceResult,
-  Resource,
-  Tool,
+import {
+  ElicitRequestSchema,
+  type CallToolResult,
+  type ReadResourceResult,
+  type Resource,
+  type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { getToken } from "./auth";
+import { presentElicitation } from "./elicitation";
 
 // The SDK transport pins the Authorization header at construction time, so
 // whenever the token changes we tear down and rebuild the client/transport.
@@ -35,7 +37,21 @@ export async function connectMCP(): Promise<Client> {
   await disconnectMCP();
   connectedToken = token;
   connectPromise = (async () => {
-    const c = new Client({ name: "fastmcp-client", version: "0.1.0" });
+    const c = new Client(
+      { name: "fastmcp-client", version: "0.1.0" },
+      {
+        capabilities: {
+          // Declare that we can present elicitation forms to the user, so the
+          // server may pause tool calls and ask the human for input.
+          elicitation: { form: {} },
+        },
+      },
+    );
+    // Server->client requests arrive over the open SSE stream; present them
+    // to the user via the ElicitationDialog and return their answer.
+    c.setRequestHandler(ElicitRequestSchema, (request) =>
+      presentElicitation(request),
+    );
     await c.connect(transportFor(token));
     return c;
   })();

@@ -3,8 +3,11 @@
 A minimal MCP (Model Context Protocol) app:
 
 - **Server** — Python, built with [FastMCP](https://github.com/PrefectHQ/fastmcp), served over
-  Streamable HTTP with bearer-token auth. Two public tools (`add`, `reverse_string`) and four
-  admin-only tools (`get_time`, `secret_message`, `get_customers`, `chart_image`).
+  Streamable HTTP with bearer-token auth. Two public tools (`add`, `reverse_string`) and five
+  admin-only tools (`get_time`, `secret_message`, `get_customers`, `chart_image`, `generate_report`).
+  `generate_report` uses **user elicitation** (`ctx.elicit`) — it pauses until the human picks a
+  report format, then resumes. Only the **CSV** option actually generates a report (real customer
+  data as `text/csv`); pdf/png return a "not implemented" notice.
 - **Client** — React + Vite + TypeScript app using **Chakra UI** and **TanStack Query**, talking
   to the server with the official `@modelcontextprotocol/sdk`. Tools and **resources** are
   browsable in tabs; results render as tables, JSON, or image/audio blocks.
@@ -33,7 +36,7 @@ sequenceDiagram
 
     C->>S: POST /mcp - tools/list (same session)
     S->>S: AuthMiddleware filters tools by token scopes
-    S-->>C: visible tools + inputSchemas (admin: 6, alice: 2)
+    S-->>C: visible tools + inputSchemas (admin: 7, alice: 2)
     C-->>U: Renders tool list (TanStack Query, 30s cache)
 
     U->>C: Fill form, click Call tool
@@ -57,7 +60,7 @@ Demo users (from `MCP_USERS`):
 
 | User  | Password | Scopes | Sees                              |
 |-------|----------|--------|-----------------------------------|
-| admin | secret   | admin  | all 6 tools                       |
+| admin | secret   | admin  | all 7 tools                       |
 | alice | wonder   | user   | public tools only                 |
 
 ## Run it
@@ -145,7 +148,8 @@ curl -N localhost:8000/mcp
 ```
 main.py              FastMCP server: tools + Streamable HTTP app
                      (add, reverse_string public; get_time, secret_message,
-                     get_customers, chart_image admin-only)
+                     get_customers, chart_image, generate_report admin-only;
+                     generate_report demonstrates ctx.elicit user elicitation)
                      resources: customers://latest (JSON), report://revenue-chart
                      (PNG blob), customers://{id} template — all admin-only
 auth.py              SimpleTokenVerifier, POST /login, JWT mint/verify
@@ -154,11 +158,13 @@ test_server.py       pytest suite (stdio client)
 client/              React app (Chakra UI + TanStack Query + MCP TS SDK)
   src/mcp/auth.ts    login/logout + token storage
   src/mcp/client.ts  MCP client singleton + bearer-token transport
-                     (listTools/callTool/listResources/readResource)
+                     (listTools/callTool/listResources/readResource + elicitation
+                     handler with capability { elicitation: { form: {} } })
+  src/mcp/elicitation.ts  bridge between SDK elicitation requests and the dialog
   src/hooks/         TanStack Query hooks (tools, resources, auth)
   src/components/    LoginPanel, ConnectionStatus, ToolsList, ToolCard, ResultView,
                      DataTable, ResourcesPanel, ResourceViewer, ResourceContents,
-                     ColorModeToggle
+                     ElicitationDialog, ColorModeToggle
 PLAN.md              Design notes and future work
 ```
 

@@ -9,6 +9,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import App from "./App";
 import * as mcpClient from "./mcp/client";
+import { cancelElicitation, presentElicitation } from "./mcp/elicitation";
 
 // Don't touch the real MCP transport in unit tests — the login->UI switch
 // is the behavior under test. (The real connect flow is covered by curl/e2e.)
@@ -530,5 +531,137 @@ describe("resources", () => {
     expect(
       screen.getByRole("button", { name: /call add/i }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("elicitation dialog", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    cancelElicitation();
+  });
+
+  async function login() {
+    await userEvent.type(screen.getByPlaceholderText("admin"), "admin");
+    await userEvent.type(screen.getByPlaceholderText("••••••"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/signed in as/i)).toBeInTheDocument();
+    });
+  }
+
+  it("shows the form and submits the chosen answer", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    renderApp();
+    await login();
+
+    const promise = presentElicitation({
+      method: "elicitation/create",
+      params: {
+        message: "Choose a report format:",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            value: {
+              type: "string",
+              enum: ["pdf", "csv", "png"],
+              enumNames: ["PDF report", "CSV export", "Revenue chart"],
+            },
+          },
+          required: ["value"],
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Choose a report format:")).toBeInTheDocument();
+    });
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("pdf"); // defaults to first enum option
+
+    await userEvent.selectOptions(select, "csv");
+    await userEvent.click(screen.getByRole("button", { name: /submit/i }));
+
+    const result = await promise;
+    expect(result.action).toBe("accept");
+    expect(result.content).toEqual({ value: "csv" });
+  });
+
+  it("declines when the user clicks Decline", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    renderApp();
+    await login();
+
+    const promise = presentElicitation({
+      method: "elicitation/create",
+      params: {
+        message: "Approve this action?",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            value: { type: "string", enum: ["yes", "no"] },
+          },
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Approve this action?")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /decline/i }));
+
+    const result = await promise;
+    expect(result.action).toBe("decline");
+  });
+});
+
+describe("csv report rendering", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(mcpClient.callTool).mockReset();
+  });
+
+  it("renders a text/csv content block as raw code", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    vi.mocked(mcpClient.callTool).mockResolvedValue({
+      content: [
+        {
+          type: "text",
+          mimeType: "text/csv",
+          text: "id,name\n1,Allison Hill\n2,Gina Moore",
+        },
+      ],
+      isError: false,
+    } as unknown as CallToolResult);
+
+    renderApp();
+    await userEvent.type(screen.getByPlaceholderText("admin"), "admin");
+    await userEvent.type(screen.getByPlaceholderText("••••••"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/signed in as/i)).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("secret_message"));
+    await userEvent.click(
+      screen.getByRole("button", { name: /call secret_message/i }),
+    );
+
+    await waitFor(() => {
+      // Raw CSV text — not JSON-escaped (no \n in the output).
+      expect(screen.getByText(/1,Allison Hill/)).toBeInTheDocument();
+      expect(screen.queryByText(/\\n/)).not.toBeInTheDocument();
+    });
   });
 });

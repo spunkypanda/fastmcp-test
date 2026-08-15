@@ -75,8 +75,42 @@ export function ResultView({
     );
   }
 
-  // Non-text content (image/audio/resource/…) renders per block type.
+  // Raw text with an explicit mimeType (e.g. text/csv) renders unescaped
+  // instead of being JSON-wrapped.
   const blocks = result.content ?? [];
+  const typedTextBlocks = blocks.filter(
+    (b) => b.type === "text" && "mimeType" in b,
+  );
+  if (typedTextBlocks.length > 0 && typedTextBlocks.length === blocks.length) {
+    return (
+      <VStack align="stretch" gap="2">
+        <Text fontSize="sm" fontWeight="semibold">
+          Result
+        </Text>
+        {typedTextBlocks.map((block, i) => {
+          const b = block as { type: "text"; text: string; mimeType?: string };
+          return (
+            <Code
+              key={i}
+              as="pre"
+              display="block"
+              variant="outline"
+              p="3"
+              width="100%"
+              maxH="400px"
+              overflow="auto"
+              whiteSpace="pre-wrap"
+              fontSize="sm"
+            >
+              {b.text}
+            </Code>
+          );
+        })}
+      </VStack>
+    );
+  }
+
+  // Non-text content (image/audio/resource/…) renders per block type.
   if (blocks.some((b) => b.type !== "text")) {
     return (
       <VStack align="stretch" gap="3">

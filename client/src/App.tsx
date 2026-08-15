@@ -19,6 +19,7 @@ import { ToolCard } from "./components/ToolCard";
 import { ColorModeToggle } from "./components/ColorModeToggle";
 import { ResourcesPanel } from "./components/ResourcesPanel";
 import { ResourceViewer } from "./components/ResourceViewer";
+import { ElicitationDialog } from "./components/ElicitationDialog";
 
 export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
@@ -62,40 +63,44 @@ export default function App() {
   })();
 
   return (
-    <Container maxW="container.xl" py={6}>
-      <VStack align="stretch" gap={5}>
-        <HStack justify="space-between" wrap="wrap" gap={3}>
-          <Heading size="lg">FastMCP Client</Heading>
-          <HStack gap={2}>
-            <ColorModeToggle />
-            <ConnectionStatus />
+    <>
+      {/* Server-initiated prompts (tool calls pausing to ask the user). */}
+      <ElicitationDialog />
+      <Container maxW="container.xl" py={6}>
+        <VStack align="stretch" gap={5}>
+          <HStack justify="space-between" wrap="wrap" gap={3}>
+            <Heading size="lg">FastMCP Client</Heading>
+            <HStack gap={2}>
+              <ColorModeToggle />
+              <ConnectionStatus />
+            </HStack>
           </HStack>
-        </HStack>
 
-        <Grid
-          templateColumns={{ base: "1fr", md: "300px 1fr" }}
-          gap={6}
-          alignItems="start"
-        >
-          <Tabs.Root value={tab} onValueChange={(e) => setTab(e.value)}>
-            <Tabs.List>
-              <Tabs.Trigger value="tools">Tools</Tabs.Trigger>
-              <Tabs.Trigger value="resources">Resources</Tabs.Trigger>
-            </Tabs.List>
-            <Tabs.Content value="tools">
-              <ToolsList selected={selected} onSelect={setSelected} />
-            </Tabs.Content>
-            <Tabs.Content value="resources">
-              <ResourcesPanel
-                selected={selectedResource}
-                onSelect={setSelectedResource}
-              />
-            </Tabs.Content>
-          </Tabs.Root>
+          <Grid
+            templateColumns={{ base: "1fr", md: "300px 1fr" }}
+            gap={6}
+            alignItems="start"
+          >
+            <Tabs.Root value={tab} onValueChange={(e) => setTab(e.value)}>
+              <Tabs.List>
+                <Tabs.Trigger value="tools">Tools</Tabs.Trigger>
+                <Tabs.Trigger value="resources">Resources</Tabs.Trigger>
+              </Tabs.List>
+              <Tabs.Content value="tools">
+                <ToolsList selected={selected} onSelect={setSelected} />
+              </Tabs.Content>
+              <Tabs.Content value="resources">
+                <ResourcesPanel
+                  selected={selectedResource}
+                  onSelect={setSelectedResource}
+                />
+              </Tabs.Content>
+            </Tabs.Root>
 
-          <Box>{rightPanel}</Box>
-        </Grid>
-      </VStack>
-    </Container>
+            <Box>{rightPanel}</Box>
+          </Grid>
+        </VStack>
+      </Container>
+    </>
   );
 }

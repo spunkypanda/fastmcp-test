@@ -7,6 +7,7 @@ import re
 import sys
 from pathlib import Path
 
+import mcp.types as types
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -130,6 +131,75 @@ def test_chart_image_returns_png_content_block():
                 raw = base64.b64decode(images[0].data)
                 assert raw[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic bytes
                 assert len(raw) > 10_000  # a real rendered chart
+
+    _run_async(run())
+
+
+def test_generate_report_elicits_and_returns_real_csv():
+    async def run():
+        async def elicit_cb(ctx, params):
+            # The human picks the CSV option.
+            return types.ElicitResult(action="accept", content={"value": "csv"})
+
+        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(
+                read, write, elicitation_callback=elicit_cb
+            ) as session:
+                await session.initialize()
+
+                result = await session.call_tool("generate_report", {})
+                assert result.isError is False
+                # A real CSV is returned as a text/csv content block.
+                block = result.content[0]
+                assert block.type == "text"
+                assert block.mimeType == "text/csv"
+                assert block.text.startswith(
+                    "id,name,email,phone,company,city,country,created_at"
+                )
+                # header + 10 customer rows
+                assert block.text.count("\n") == 11
+
+    _run_async(run())
+
+
+def test_generate_report_png_not_implemented():
+    async def run():
+        async def elicit_cb(ctx, params):
+            return types.ElicitResult(action="accept", content={"value": "png"})
+
+        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(
+                read, write, elicitation_callback=elicit_cb
+            ) as session:
+                await session.initialize()
+
+                result = await session.call_tool("generate_report", {})
+                assert result.isError is False
+                text = "\n".join(b.text for b in result.content if b.type == "text")
+                assert "Only CSV reports are implemented" in text
+                assert "'png' is not supported yet" in text
+
+    _run_async(run())
+
+
+def test_generate_report_handles_decline():
+    async def run():
+        async def elicit_cb(ctx, params):
+            return types.ElicitResult(action="decline", content={})
+
+        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(
+                read, write, elicitation_callback=elicit_cb
+            ) as session:
+                await session.initialize()
+
+                result = await session.call_tool("generate_report", {})
+                assert result.isError is False
+                text = "\n".join(b.text for b in result.content if b.type == "text")
+                assert "cancelled (decline)" in text
 
     _run_async(run())
 
