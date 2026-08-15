@@ -6,6 +6,7 @@ import {
   Grid,
   Heading,
   HStack,
+  Tabs,
   Text,
   VStack,
 } from "@chakra-ui/react";
@@ -16,9 +17,13 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { ToolsList } from "./components/ToolsList";
 import { ToolCard } from "./components/ToolCard";
 import { ColorModeToggle } from "./components/ColorModeToggle";
+import { ResourcesPanel } from "./components/ResourcesPanel";
+import { ResourceViewer } from "./components/ResourceViewer";
 
 export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedResource, setSelectedResource] = useState<string | null>(null);
+  const [tab, setTab] = useState<string>("tools");
   const tools = useMcpTools();
   const isAuthed = useSyncExternalStore(subscribeAuth, isAuthenticated);
 
@@ -28,6 +33,33 @@ export default function App() {
 
   const selectedTool =
     tools.data?.find((t) => t.name === selected) ?? null;
+
+  const rightPanel = (() => {
+    if (tab === "tools") {
+      return selectedTool ? (
+        <ToolCard key={selectedTool.name} tool={selectedTool} />
+      ) : (
+        <Card.Root>
+          <Card.Body>
+            <Text color="fg.muted" fontSize="sm">
+              Select a tool on the left to call it.
+            </Text>
+          </Card.Body>
+        </Card.Root>
+      );
+    }
+    return selectedResource ? (
+      <ResourceViewer key={selectedResource} uri={selectedResource} />
+    ) : (
+      <Card.Root>
+        <Card.Body>
+          <Text color="fg.muted" fontSize="sm">
+            Select a resource on the left to read it.
+          </Text>
+        </Card.Body>
+      </Card.Root>
+    );
+  })();
 
   return (
     <Container maxW="container.xl" py={6}>
@@ -45,21 +77,23 @@ export default function App() {
           gap={6}
           alignItems="start"
         >
-          <ToolsList selected={selected} onSelect={setSelected} />
+          <Tabs.Root value={tab} onValueChange={(e) => setTab(e.value)}>
+            <Tabs.List>
+              <Tabs.Trigger value="tools">Tools</Tabs.Trigger>
+              <Tabs.Trigger value="resources">Resources</Tabs.Trigger>
+            </Tabs.List>
+            <Tabs.Content value="tools">
+              <ToolsList selected={selected} onSelect={setSelected} />
+            </Tabs.Content>
+            <Tabs.Content value="resources">
+              <ResourcesPanel
+                selected={selectedResource}
+                onSelect={setSelectedResource}
+              />
+            </Tabs.Content>
+          </Tabs.Root>
 
-          <Box>
-            {selectedTool ? (
-              <ToolCard key={selectedTool.name} tool={selectedTool} />
-            ) : (
-              <Card.Root>
-                <Card.Body>
-                  <Text color="fg.muted" fontSize="sm">
-                    Select a tool on the left to call it.
-                  </Text>
-                </Card.Body>
-              </Card.Root>
-            )}
-          </Box>
+          <Box>{rightPanel}</Box>
         </Grid>
       </VStack>
     </Container>

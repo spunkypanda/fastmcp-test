@@ -1,9 +1,22 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { Alert, Code, Text, VStack } from "@chakra-ui/react";
+import { useEffect, useState } from "react";
+import type {
+  CallToolResult,
+  ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import { Alert, Code, Image, Text, VStack } from "@chakra-ui/react";
+import { readResource } from "../mcp/client";
 import { DataTable } from "./DataTable";
+import {
+  ResourceContentsView,
+  type ResourceContents,
+} from "./ResourceContents";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function dataUrl(mimeType: string, data: string): string {
+  return `data:${mimeType};base64,${data}`;
 }
 
 export function ResultView({
@@ -62,6 +75,65 @@ export function ResultView({
     );
   }
 
+  // Non-text content (image/audio/resource/…) renders per block type.
+  const blocks = result.content ?? [];
+  if (blocks.some((b) => b.type !== "text")) {
+    return (
+      <VStack align="stretch" gap="3">
+        <Text fontSize="sm" fontWeight="semibold">
+          Result
+        </Text>
+        {blocks.map((block, i) => {
+          switch (block.type) {
+            case "text":
+              return (
+                <Text key={i} fontSize="sm" whiteSpace="pre-wrap">
+                  {block.text}
+                </Text>
+              );
+            case "image":
+              return (
+                <Image
+                  key={i}
+                  src={dataUrl(block.mimeType, block.data)}
+                  alt={`Image result (${block.mimeType})`}
+                  maxH="300px"
+                  width="fit-content"
+                  borderRadius="md"
+                  borderWidth="1px"
+                />
+              );
+            case "audio":
+              return (
+                <audio
+                  key={i}
+                  controls
+                  src={dataUrl(block.mimeType, block.data)}
+                  style={{ width: "100%" }}
+                />
+              );
+            case "resource":
+              return (
+                <ResourceContentsView
+                  key={i}
+                  contents={[block.resource] as ResourceContents}
+                />
+              );
+            case "resource_link":
+              return <ResourceLinkView key={i} uri={block.uri} />;
+            default:
+              // resource / embedded — show their JSON shape.
+              return (
+                <Code key={i} as="pre" variant="outline" display="block" p="3" fontSize="sm">
+                  {JSON.stringify(block, null, 2)}
+                </Code>
+              );
+          }
+        })}
+      </VStack>
+    );
+  }
+
   return (
     <VStack align="stretch" gap="2">
       <Text fontSize="sm" fontWeight="semibold">
@@ -70,6 +142,7 @@ export function ResultView({
       <Code
         as="pre"
         variant="outline"
+        display="block"
         p="3"
         width="100%"
         maxH="300px"
@@ -85,6 +158,50 @@ export function ResultView({
       </Code>
     </VStack>
   );
+}
+
+/**
+ * A resource_link content block is a URI reference — resolve it via
+ * resources/read and render whatever comes back.
+ */
+function ResourceLinkView({ uri }: { uri: string }) {
+  const [state, setState] = useState<{
+    loading: boolean;
+    contents?: ResourceContents;
+    error?: string;
+  }>({ loading: true });
+
+  useEffect(() => {
+    let alive = true;
+    setState({ loading: true });
+    readResource(uri)
+      .then((result: ReadResourceResult) => {
+        if (alive) setState({ loading: false, contents: result.contents });
+      })
+      .catch((err: Error) => {
+        if (alive) setState({ loading: false, error: err.message });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [uri]);
+
+  if (state.loading) {
+    return (
+      <Alert.Root status="info">
+        <Alert.Title>Loading {uri}…</Alert.Title>
+      </Alert.Root>
+    );
+  }
+  if (state.error) {
+    return (
+      <Alert.Root status="error">
+        <Alert.Title>Failed to load {uri}</Alert.Title>
+        <Alert.Description>{state.error}</Alert.Description>
+      </Alert.Root>
+    );
+  }
+  return <ResourceContentsView contents={state.contents ?? []} />;
 }
 
 /** Returns a record array when the result is a list of flat objects. */

@@ -1,6 +1,7 @@
 """Server tests using the MCP stdio client (auth checks are skipped on stdio)."""
 
 import asyncio
+import base64
 import json
 import re
 import sys
@@ -107,6 +108,69 @@ def test_get_customers_count_is_respected():
     _run_async(run())
 
 
+def test_chart_image_returns_png_content_block():
+    async def run():
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=[str(SERVER)],
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                result = await session.call_tool("chart_image", {})
+                assert result.isError is False
+
+                images = [
+                    b for b in result.content if getattr(b, "type", None) == "image"
+                ]
+                assert len(images) == 1
+                assert images[0].mimeType == "image/png"
+
+                raw = base64.b64decode(images[0].data)
+                assert raw[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic bytes
+                assert len(raw) > 10_000  # a real rendered chart
+
+    _run_async(run())
+
+
+def test_resources_list_and_read():
+    async def run():
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=[str(SERVER)],
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # resources/list advertises all three
+                listed = await session.list_resources()
+                uris = {str(r.uri) for r in listed.resources}
+                assert "customers://latest" in uris
+                assert "report://revenue-chart" in uris
+
+                # text resource -> JSON customers
+                latest = await session.read_resource("customers://latest")
+                text_contents = latest.contents[0]
+                assert hasattr(text_contents, "text")
+                customers = json.loads(text_contents.text)
+                assert isinstance(customers, list) and len(customers) == 10
+
+                # blob resource -> PNG
+                chart = await session.read_resource("report://revenue-chart")
+                blob = chart.contents[0].blob
+                raw = base64.b64decode(blob)
+                assert raw[:8] == b"\x89PNG\r\n\x1a\n"
+
+                # template resource -> single customer by id
+                single = await session.read_resource("customers://1")
+                customer = json.loads(single.contents[0].text)
+                assert customer["id"] == 1
+
+    _run_async(run())
+
+
 def test_tools_list_contains_get_customers():
     async def run():
         params = StdioServerParameters(
@@ -120,6 +184,7 @@ def test_tools_list_contains_get_customers():
                 names = [t.name for t in tools.tools]
                 assert "get_customers" in names
                 assert "get_time" in names
+                assert "chart_image" in names
                 assert "add" in names
 
     _run_async(run())

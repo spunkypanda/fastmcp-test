@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
   CallToolResult,
+  ReadResourceResult,
+  Resource,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { getToken } from "./auth";
@@ -69,4 +71,17 @@ export async function callTool(
 ): Promise<CallToolResult> {
   const c = await connectMCP();
   return c.callTool({ name, arguments: args }) as Promise<CallToolResult>;
+}
+
+export async function listResources(): Promise<Resource[]> {
+  const c = await connectMCP();
+  const result = await c.listResources();
+  return result.resources;
+}
+
+export async function readResource(
+  uri: string,
+): Promise<ReadResourceResult> {
+  const c = await connectMCP();
+  return c.readResource({ uri });
 }

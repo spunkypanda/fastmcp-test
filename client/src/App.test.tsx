@@ -3,7 +3,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ChakraProvider, defaultSystem } from "@chakra-ui/react";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import App from "./App";
 import * as mcpClient from "./mcp/client";
 
@@ -50,6 +53,21 @@ vi.mock("./mcp/client", () => ({
   callTool: vi.fn(),
   connectMCP: vi.fn(),
   disconnectMCP: vi.fn(),
+  listResources: vi.fn(async () => [
+    {
+      uri: "customers://latest",
+      name: "customers_latest",
+      mimeType: "application/json",
+      description: "Latest sample customer records as JSON",
+    },
+    {
+      uri: "report://revenue-chart",
+      name: "revenue_chart",
+      mimeType: "image/png",
+      description: "PNG bar chart of sample monthly revenue",
+    },
+  ]),
+  readResource: vi.fn(),
 }));
 
 // A plausible-looking JWT so getUser() can decode sub/scopes.
@@ -276,5 +294,241 @@ describe("get_customers result table", () => {
     expect(mcpClient.callTool).toHaveBeenCalledWith("get_customers", {
       count: 10,
     });
+  });
+});
+
+describe("non-text results", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(mcpClient.callTool).mockReset();
+  });
+
+  it("renders image, audio, and text content blocks", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    vi.mocked(mcpClient.callTool).mockResolvedValue({
+      content: [
+        { type: "text", text: "Here is the chart:" },
+        {
+          type: "image",
+          data: "iVBORw0KGgoAAAANSUhEUg==",
+          mimeType: "image/png",
+        },
+        {
+          type: "audio",
+          data: "UklGRiQAAABXQVZFZm10",
+          mimeType: "audio/mpeg",
+        },
+      ],
+      isError: false,
+    } as CallToolResult);
+
+    renderApp();
+
+    await userEvent.type(screen.getByPlaceholderText("admin"), "admin");
+    await userEvent.type(screen.getByPlaceholderText("••••••"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByText("secret_message")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("secret_message"));
+    await userEvent.click(
+      screen.getByRole("button", { name: /call secret_message/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Here is the chart:")).toBeInTheDocument();
+      const img = screen.getByRole("img") as HTMLImageElement;
+      expect(img.getAttribute("src")).toBe(
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+      );
+      const audio = document.querySelector("audio") as HTMLAudioElement;
+      expect(audio).not.toBeNull();
+      expect(audio.getAttribute("src")).toBe(
+        "data:audio/mpeg;base64,UklGRiQAAABXQVZFZm10",
+      );
+    });
+  });
+});
+
+describe("resources", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(mcpClient.readResource).mockReset();
+  });
+
+  async function loginAsAdmin() {
+    await userEvent.type(screen.getByPlaceholderText("admin"), "admin");
+    await userEvent.type(screen.getByPlaceholderText("••••••"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/signed in as/i)).toBeInTheDocument();
+    });
+  }
+
+  it("lists resources and reads one on click", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    vi.mocked(mcpClient.readResource).mockResolvedValue({
+      contents: [
+        {
+          uri: "customers://latest",
+          mimeType: "application/json",
+          text: JSON.stringify([{ id: 1, name: "Allison Hill" }]),
+        },
+      ],
+    } as ReadResourceResult);
+
+    renderApp();
+    await loginAsAdmin();
+
+    await userEvent.click(screen.getByRole("tab", { name: /resources/i }));
+    await waitFor(() => {
+      expect(screen.getByText("customers://latest")).toBeInTheDocument();
+      expect(screen.getByText("report://revenue-chart")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("customers://latest"));
+    await waitFor(() => {
+      expect(mcpClient.readResource).toHaveBeenCalledWith("customers://latest");
+      expect(screen.getByText(/Allison Hill/)).toBeInTheDocument();
+    });
+    // The JSON code block must be display:block — the Code recipe defaults to
+    // inline-flex + align-items:center, which clips the top of tall content
+    // inside a max-height scroll container. Chakra v3 compiles props into a
+    // generated class + injected <style>, so assert on that rule.
+    const codeBlock = screen.getByText(/Allison Hill/) as HTMLElement;
+    expect(codeBlock.tagName).toBe("PRE");
+    const generatedClass = codeBlock.className
+      .split(" ")
+      .find((c) => c.startsWith("css-"))!;
+    const rule = (document.head?.innerHTML ?? "").match(
+      new RegExp(`\\.${generatedClass}\\{[^}]*\\}`),
+    );
+    expect(rule?.[0]).toMatch(/display[: ]block/);
+  });
+
+  it("renders an inline resource content block in a tool result", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    vi.mocked(mcpClient.callTool).mockResolvedValue({
+      content: [
+        {
+          type: "resource",
+          resource: {
+            uri: "customers://latest",
+            mimeType: "application/json",
+            text: "{\"ok\":true}",
+          },
+        },
+      ],
+      isError: false,
+    } as CallToolResult);
+
+    renderApp();
+    await loginAsAdmin();
+
+    await userEvent.click(screen.getByText("secret_message"));
+    await userEvent.click(
+      screen.getByRole("button", { name: /call secret_message/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/"ok": true/)).toBeInTheDocument();
+    });
+  });
+
+  it("resolves a resource_link block via resources/read", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    vi.mocked(mcpClient.callTool).mockResolvedValue({
+      content: [
+        {
+          type: "resource_link",
+          uri: "customers://latest",
+          name: "customers_latest",
+          title: "Latest customers",
+        },
+      ],
+      isError: false,
+    } as CallToolResult);
+    vi.mocked(mcpClient.readResource).mockResolvedValue({
+      contents: [
+        {
+          uri: "customers://latest",
+          mimeType: "application/json",
+          text: JSON.stringify([{ id: 1, name: "Linked Customer" }]),
+        },
+      ],
+    } as ReadResourceResult);
+
+    renderApp();
+    await loginAsAdmin();
+
+    await userEvent.click(screen.getByText("secret_message"));
+    await userEvent.click(
+      screen.getByRole("button", { name: /call secret_message/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Linked Customer/)).toBeInTheDocument();
+    });
+  });
+
+  it("switches the main panel when changing tabs", async () => {
+    stubLogin(200, {
+      access_token: TOKEN,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+    vi.mocked(mcpClient.readResource).mockResolvedValue({
+      contents: [
+        {
+          uri: "customers://latest",
+          mimeType: "application/json",
+          text: JSON.stringify([{ id: 1, name: "Tabbed Customer" }]),
+        },
+      ],
+    } as ReadResourceResult);
+
+    renderApp();
+    await loginAsAdmin();
+
+    // Select a tool -> tool card in the main panel.
+    await userEvent.click(screen.getByText("add"));
+    expect(
+      screen.getByRole("button", { name: /call add/i }),
+    ).toBeInTheDocument();
+
+    // Switching to Resources must swap the main panel away from the tool.
+    await userEvent.click(screen.getByRole("tab", { name: /resources/i }));
+    expect(
+      screen.queryByRole("button", { name: /call add/i }),
+    ).not.toBeInTheDocument();
+
+    // Selecting a resource shows the resource viewer in the main panel.
+    await userEvent.click(screen.getByText("customers://latest"));
+    await waitFor(() => {
+      expect(screen.getByText(/Tabbed Customer/)).toBeInTheDocument();
+    });
+
+    // Back to Tools: the previously selected tool is still there.
+    await userEvent.click(screen.getByRole("tab", { name: /tools/i }));
+    expect(
+      screen.getByRole("button", { name: /call add/i }),
+    ).toBeInTheDocument();
   });
 });

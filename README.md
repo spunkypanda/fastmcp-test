@@ -3,10 +3,46 @@
 A minimal MCP (Model Context Protocol) app:
 
 - **Server** — Python, built with [FastMCP](https://github.com/PrefectHQ/fastmcp), served over
-  Streamable HTTP with bearer-token auth. Two public tools (`add`, `reverse_string`) and three
-  admin-only tools (`get_time`, `secret_message`, `get_customers`).
+  Streamable HTTP with bearer-token auth. Two public tools (`add`, `reverse_string`) and four
+  admin-only tools (`get_time`, `secret_message`, `get_customers`, `chart_image`).
 - **Client** — React + Vite + TypeScript app using **Chakra UI** and **TanStack Query**, talking
-  to the server with the official `@modelcontextprotocol/sdk`.
+  to the server with the official `@modelcontextprotocol/sdk`. Tools and **resources** are
+  browsable in tabs; results render as tables, JSON, or image/audio blocks.
+
+## Data flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant C as React Client (Vite 5173)
+    participant S as FastMCP Server (uvicorn 8000)
+
+    Note over C,S: Browser requests go through the Vite proxy
+
+    U->>C: Enter credentials, click Sign in
+    C->>S: POST /login {username, password}
+    S-->>C: 200 {access_token (JWT), expires_in}
+    Note over C: Token stored (reactive auth store)
+
+    C->>S: POST /mcp - initialize (Bearer token, clientInfo)
+    S->>S: verify_token: JWT signature + expiry -> scopes
+    S-->>C: 200 {protocolVersion, capabilities} + Mcp-Session-Id
+    C->>S: GET /mcp (SSE stream held open for server notifications)
+    C->>S: POST /mcp - notifications/initialized
+
+    C->>S: POST /mcp - tools/list (same session)
+    S->>S: AuthMiddleware filters tools by token scopes
+    S-->>C: visible tools + inputSchemas (admin: 6, alice: 2)
+    C-->>U: Renders tool list (TanStack Query, 30s cache)
+
+    U->>C: Fill form, click Call tool
+    C->>S: POST /mcp - tools/call {name, arguments}
+    S->>S: require_scopes("admin") check for admin-only tools
+    S->>S: Execute tool (e.g. Faker customers)
+    S-->>C: result with structuredContent
+    C-->>U: Renders result (data table / pretty JSON)
+```
 
 ## How auth works
 
@@ -21,7 +57,7 @@ Demo users (from `MCP_USERS`):
 
 | User  | Password | Scopes | Sees                              |
 |-------|----------|--------|-----------------------------------|
-| admin | secret   | admin  | all 5 tools                       |
+| admin | secret   | admin  | all 6 tools                       |
 | alice | wonder   | user   | public tools only                 |
 
 ## Run it
@@ -109,16 +145,20 @@ curl -N localhost:8000/mcp
 ```
 main.py              FastMCP server: tools + Streamable HTTP app
                      (add, reverse_string public; get_time, secret_message,
-                     get_customers admin-only)
+                     get_customers, chart_image admin-only)
+                     resources: customers://latest (JSON), report://revenue-chart
+                     (PNG blob), customers://{id} template — all admin-only
 auth.py              SimpleTokenVerifier, POST /login, JWT mint/verify
 .env.example         MCP_USERS / MCP_SECRET_KEY
 test_server.py       pytest suite (stdio client)
 client/              React app (Chakra UI + TanStack Query + MCP TS SDK)
   src/mcp/auth.ts    login/logout + token storage
   src/mcp/client.ts  MCP client singleton + bearer-token transport
-  src/hooks/         TanStack Query hooks (tools list, tool call, auth)
+                     (listTools/callTool/listResources/readResource)
+  src/hooks/         TanStack Query hooks (tools, resources, auth)
   src/components/    LoginPanel, ConnectionStatus, ToolsList, ToolCard, ResultView,
-                     DataTable (list-of-records results render as a table)
+                     DataTable, ResourcesPanel, ResourceViewer, ResourceContents,
+                     ColorModeToggle
 PLAN.md              Design notes and future work
 ```
 

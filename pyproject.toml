@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn>=0.30",
     "joserfc>=1.0",
     "faker>=40",
+    "pillow>=12",
 ]
 
 [dependency-groups]
